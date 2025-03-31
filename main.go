@@ -6,29 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sync/atomic"
 )
-
-type apiConfig struct {
-	fileserverHits atomic.Int32
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, req)
-	})
-}
-
-func (cfg *apiConfig) hitsHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, "Hits: %d", cfg.fileserverHits.Load())
-}
-
-func (cfg *apiConfig) resetHandler(w http.ResponseWriter, req *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	cfg.fileserverHits.Store(0)
-}
 
 func main() {
 	apiCfg := &apiConfig{}
@@ -40,9 +18,10 @@ func main() {
 	}
 
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))	//Handles requests from /app/ endpoints, strips the /app and serves files in base directory
-	mux.HandleFunc("/metrics", apiCfg.hitsHandler)
-	mux.HandleFunc("/reset", apiCfg.resetHandler)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, req *http.Request) {	//Handles requests from /healthz endpoint
+	mux.HandleFunc("GET /admin/metrics", apiCfg.hitsHandler)	//Handles server response to /admin/metrics	- displays visit count
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)	//Handles server response to /admin/reset - resets visit count
+	mux.HandleFunc("POST /api/validate_chirp", validateHandler)
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {	//Handles requests from /healthz endpoint
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")	//Sets response data
 		w.WriteHeader(http.StatusOK)
 		io.WriteString(w, "OK")
@@ -57,3 +36,5 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+
