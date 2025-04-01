@@ -1,25 +1,27 @@
 package main
 
 import (
-	"net/http"
 	"encoding/json"
 	"log"
+	"net/http"
+	"strings"
 )
 
-func validateHandler(w http.ResponseWriter, req *http.Request) {
+func validateHandler(w http.ResponseWriter, req *http.Request) {	//Validates that a post is not longer than the 140 char limit
 	type chirpyPost struct {
 		Body string `json:"body"`
 	}
 	type validated struct {
+		CleanedBody string `json:"cleaned_body"`
 		Valid bool `json:"valid"`
 		Error string `json:"error,omitempty"`
 	}
 
 	respBody := validated{}
-
 	decoder := json.NewDecoder(req.Body)
 	request := chirpyPost{}
 	err := decoder.Decode(&request)
+	respBody.CleanedBody = badWordReplacement(request.Body)	//Set response "body", replace any profanity
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
 		respBody.Error = "Invalid JSON payload"
@@ -36,16 +38,14 @@ func validateHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func respondWithJSON(w http.ResponseWriter, statusCode int, body any) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(statusCode)
-    data, err := json.Marshal(body)
-    if err != nil {
-        log.Printf("Error marshalling JSON data: %s", err)
-        fallback := map[string]string{"error": "Something went wrong"}
-        fallbackData, _ := json.Marshal(fallback) // Safe fallback, ignoring error here
-        w.Write(fallbackData)
-        return
-    }
-    w.Write(data)
+func badWordReplacement(text string) string {	//Replaces profanity in post with "****"
+	wordsInPost := strings.Fields(text)
+	filtered := make([]string, len(wordsInPost))
+	for i, word := range wordsInPost {
+		if strings.ToLower(word) == "kerfuffle" || strings.ToLower(word) == "sharbert" || strings.ToLower(word) == "fornax" {
+			word = "****"
+		}
+		filtered[i] = word
+	}
+	return strings.Join(filtered, " ")
 }

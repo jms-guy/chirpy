@@ -27,4 +27,5 @@ go.work.sum
 *.http
 *.https
 
+chirpy
 out
