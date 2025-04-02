@@ -12,6 +12,7 @@ import (
 
 type apiConfig struct {
 	db *database.Queries
+	platform string
 	fileserverHits atomic.Int32
 }
 
@@ -22,7 +23,52 @@ type User struct {
 		Email string `json:"email"`
 	}
 
+type Chirp struct {
+	ID uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body string `json:"body"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
 ///// Config handle methods
+
+func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, req *http.Request) {
+	type chirpRequest struct {
+		Body string `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+
+	request := chirpRequest{}
+	err := json.NewDecoder(req.Body).Decode(&request)
+	if err != nil {
+		fmt.Printf("Error decoding response body: %s", err)
+		respondWithError(w, 400, "Invalid JSON payload")
+		return
+	}
+
+	chirpParams := database.CreateChirpParams{
+		ID: uuid.New(),
+		Body: request.Body,
+		UserID: request.UserID,
+	}
+
+	newChirp, err := cfg.db.CreateChirp(req.Context(), chirpParams)
+	if err != nil {
+		fmt.Printf("Error creating new chirp: %s", err)
+		respondWithError(w, 400, "Could not create chirp")
+		return
+	}
+
+	chirp := Chirp{
+		ID: newChirp.ID,
+		CreatedAt: newChirp.CreatedAt,
+		UpdatedAt: newChirp.UpdatedAt,
+		Body: newChirp.Body,
+		UserID: newChirp.UserID,
+	}
+	respondWithJSON(w, 201, chirp)
+}
 
 func (cfg *apiConfig) usersHandler(w http.ResponseWriter, req *http.Request) {	//Creates a new user in database
 	type httpRequest struct {
@@ -76,6 +122,15 @@ func (cfg *apiConfig) hitsHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (cfg *apiConfig) resetHandler(w http.ResponseWriter, req *http.Request) {	
-	w.WriteHeader(http.StatusOK)
-	cfg.fileserverHits.Store(0)
+	if cfg.platform != "dev" {
+		respondWithError(w, 403, "User does not have access to this page")
+		return
+	}
+	err := cfg.db.ClearUsers(req.Context())
+	if err != nil {
+		fmt.Printf("Error clearing users table: %s", err)
+		respondWithError(w, 500, "Error clearing database")
+		return
+	}
+	respondWithJSON(w, 200, map[string]string{"status": "Users table cleared successfully"})
 }

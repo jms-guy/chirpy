@@ -8,4 +8,5 @@ VALUES (
 )
 RETURNING *;
 
--- name: 
+-- name: ClearUsers :exec
+DELETE FROM users;

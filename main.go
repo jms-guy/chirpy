@@ -19,6 +19,7 @@ func main() {
 		os.Exit(1)
 	}
 	dbURL := os.Getenv("DB_URL")	//Grabs database url
+	platformEnv := os.Getenv("PLATFORM")
 	db, err := sql.Open("postgres", dbURL)	//Opens database connection
 	if err != nil {
 		fmt.Printf("Error opening database connection: %s", err)
@@ -28,6 +29,7 @@ func main() {
 
 	apiCfg := &apiConfig{
 		db: dbQueries,
+		platform: platformEnv,
 	}
 
 	mux := http.NewServeMux()	//Creates a server mux which routes http requests to handlers
@@ -39,6 +41,7 @@ func main() {
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))	//Handles requests from /app/ endpoints, strips the /app and serves files in base directory
 	mux.HandleFunc("GET /admin/metrics", apiCfg.hitsHandler)	//Handles server response to /admin/metrics	- displays visit count
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)	//Handles server response to /admin/reset - resets visit count
+	mux.HandleFunc("POST /api/chirps", apiCfg.chirpsHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validateHandler)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {	//Handles requests from /healthz endpoint
