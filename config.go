@@ -33,34 +33,85 @@ type Chirp struct {
 
 ///// Config handle methods
 
-func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) getSingleChirp(w http.ResponseWriter, req *http.Request) {
+	chirpId := req.PathValue("chirpId")
+
+	id, err := uuid.Parse(chirpId)
+	if err != nil {
+		fmt.Printf("Failed to parse chirp ID: %s\n", err)
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+	
+	chirp, err := cfg.db.GetSingleChirp(req.Context(), id)
+	if err != nil {
+		fmt.Printf("Error getting chirp from database: %s\n", err)
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+
+	new := Chirp{
+		ID: chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body: chirp.Body,
+		UserID: chirp.UserID,
+	}
+	respondWithJSON(w, 200, new)
+}
+
+func (cfg *apiConfig) getAllChirps(w http.ResponseWriter, req *http.Request) {
+	chirps, err := cfg.db.GetAllChirps(req.Context())
+	if err != nil {
+		fmt.Printf("Error retrieving chirps from database: %s", err)
+		respondWithError(w, 400, "Error retrieving data from server")
+		return
+	}
+
+	returnChirps := []Chirp{}
+
+	for _, chirp := range chirps {
+		new := Chirp{
+			ID: chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body: chirp.Body,
+			UserID: chirp.UserID,
+		}
+		returnChirps = append(returnChirps, new)
+	}
+
+	respondWithJSON(w, 200, returnChirps)
+}
+
+func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, req *http.Request) {	//Creates a chirp in db
 	type chirpRequest struct {
 		Body string `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
 	}
 
 	request := chirpRequest{}
-	err := json.NewDecoder(req.Body).Decode(&request)
+	err := json.NewDecoder(req.Body).Decode(&request)	//Decodes request data
 	if err != nil {
 		fmt.Printf("Error decoding response body: %s", err)
 		respondWithError(w, 400, "Invalid JSON payload")
 		return
 	}
 
-	chirpParams := database.CreateChirpParams{
+	chirpParams := database.CreateChirpParams{	//Create chirp parameters
 		ID: uuid.New(),
 		Body: request.Body,
 		UserID: request.UserID,
 	}
 
-	newChirp, err := cfg.db.CreateChirp(req.Context(), chirpParams)
+	newChirp, err := cfg.db.CreateChirp(req.Context(), chirpParams)	//Create new chirp
 	if err != nil {
 		fmt.Printf("Error creating new chirp: %s", err)
 		respondWithError(w, 400, "Could not create chirp")
 		return
 	}
 
-	chirp := Chirp{
+	chirp := Chirp{	//Set chirp struct to respond with
 		ID: newChirp.ID,
 		CreatedAt: newChirp.CreatedAt,
 		UpdatedAt: newChirp.UpdatedAt,
