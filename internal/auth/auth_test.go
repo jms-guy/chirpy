@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -30,9 +29,8 @@ func TestToken(t *testing.T) {
 	id, _ := uuid.FromBytes(idBytes)
 
 	secret := "Thisisatokensecret"
-	expires := (5 * time.Second)
 
-	signature, err := MakeJWT(id, secret, expires)
+	signature, err := MakeJWT(id, secret)
 	if err != nil {
 		t.Error(err)
 	}

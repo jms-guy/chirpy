@@ -43,12 +43,16 @@ func main() {
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))	//Handles requests from /app/ endpoints, strips the /app and serves files in base directory
 	mux.HandleFunc("GET /admin/metrics", apiCfg.hitsHandler)	//Handles server response to /admin/metrics	- displays visit count
 	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)	//Handles server response to /admin/reset - resets visit count
+	mux.HandleFunc("PUT /api/users", apiCfg.updateUserHandler)
 	mux.HandleFunc("POST /api/login", apiCfg.loginHandler)
+	mux.HandleFunc("POST /api/revoke", apiCfg.revokeHandler)
+	mux.HandleFunc("POST /api/refresh", apiCfg.refreshHandler)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getAllChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpId}", apiCfg.getSingleChirp)
 	mux.HandleFunc("POST /api/chirps", apiCfg.chirpsHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validateHandler)
+	mux.HandleFunc("DELETE /api/chirps/{chirpId}", apiCfg.deleteChirpHandler)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {	//Handles requests from /healthz endpoint
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")	//Sets response data
 		w.WriteHeader(http.StatusOK)

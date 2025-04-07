@@ -1,14 +1,16 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
 	"time"
-	"encoding/json"
-	"github.com/jms-guy/chirpy/internal/database"
-	"github.com/jms-guy/chirpy/internal/auth"
+
 	"github.com/google/uuid"
+	"github.com/jms-guy/chirpy/internal/auth"
+	"github.com/jms-guy/chirpy/internal/database"
 )
 
 type apiConfig struct {
@@ -24,6 +26,7 @@ type User struct {
 		UpdatedAt time.Time `json:"updated_at"`
 		Email string `json:"email"`
 		Token string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 type Chirp struct {
@@ -36,11 +39,175 @@ type Chirp struct {
 
 ///// Config handle methods
 
+func (cfg *apiConfig) deleteChirpHandler(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 401, "Bad token")
+		return
+	}
+
+	userId, valErr := auth.ValidateJWT(token, cfg.tokenSecret)
+	if valErr != nil {
+		respondWithError(w, 401, "Bad token")
+		return
+	}
+
+	chirpId := req.PathValue("chirpId")	//Gets chirpid string from path
+
+	id, err := uuid.Parse(chirpId)	//Decodes id string into uuid to find in database
+	if err != nil {
+		fmt.Printf("Failed to parse chirp ID: %s\n", err)
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+
+	chirp, err := cfg.db.GetSingleChirp(req.Context(), id)	//Fetches chirp from database
+	if err != nil {
+		fmt.Printf("Error getting chirp from database: %s\n", err)
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+
+	if chirp.UserID != userId {
+		w.WriteHeader(403)
+		return
+	}
+
+	delErr := cfg.db.DeleteChirp(req.Context(), id)
+	if delErr != nil {
+		respondWithError(w, 500, "Error deleting chirp")
+		return
+	}
+	w.WriteHeader(204)
+}
+
+func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, req *http.Request) {
+	tokenString, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 400, "No token found")
+		return
+	}
+
+	token, err := cfg.db.GetToken(req.Context(), tokenString)
+	if err != nil {
+		respondWithError(w, 401, "Token does not exist or is expired")
+		return
+	}
+
+	revokeParams := database.RevokeTokenParams{
+			RevokedAt: sql.NullTime{Time: time.Now(), Valid: true},
+			Token: token.Token,
+		}
+
+	if err := cfg.db.RevokeToken(req.Context(), revokeParams); err != nil {
+			respondWithError(w, 500, "Error revoking token")
+			return
+		}
+	w.WriteHeader(204)
+}
+
+func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, req *http.Request) {
+	tokenString, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 400, "No token found")
+		return
+	}
+
+	token, err := cfg.db.GetToken(req.Context(), tokenString)
+	if err != nil {
+		respondWithError(w, 401, "Token does not exist or is expired")
+		return
+	}
+
+	if token.ExpiresAt.Before(time.Now()) {
+		revokeParams := database.RevokeTokenParams{
+			RevokedAt: sql.NullTime{Time: time.Now(), Valid: true},
+			Token: token.Token,
+		}
+		if err := cfg.db.RevokeToken(req.Context(), revokeParams); err != nil {
+			respondWithError(w, 500, "Error revoking token")
+			return
+		}
+		respondWithError(w, 401, "Token is expired")
+		return
+	}
+
+	userId := token.UserID
+	accessToken, err := auth.MakeJWT(userId, cfg.tokenSecret)
+	if err != nil {
+		respondWithError(w, 500, "Error creating access token")
+		return
+	}
+	respondWithJSON(w, 200, struct {
+		Token string `json:"token"`
+	}{
+		Token: accessToken,
+	})	
+}
+
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request) {
+	type httpRequest struct {
+		Password string `json:"password"`
+		Email string `json:"email"`
+	}
+
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 401, "Bad token")
+		return
+	}
+
+	request := httpRequest{}
+	reqErr := json.NewDecoder(req.Body).Decode(&request)	//Gets request data
+	if reqErr != nil {
+		fmt.Printf("Error decoding request body: %s", reqErr)
+		respondWithError(w, 400, "Invalid JSON payload")
+		return
+	}
+
+	id, valErr := auth.ValidateJWT(token, cfg.tokenSecret)
+	if valErr != nil {
+		respondWithError(w, 401, "Bad token")
+		return
+	}
+
+	user, findErr := cfg.db.GetUserFromID(req.Context(), id)
+	if findErr != nil {
+		respondWithError(w, 500, "Error finding user")
+		return
+	}
+
+
+	hash, err := auth.HashPassword(request.Password)	//Hashes password
+	if err != nil {
+		fmt.Printf("Error hashing password: %s", err)
+		respondWithError(w, 400, "Invalid password string")
+		return
+	}
+
+	updateInfo := database.UpdateUserInfoParams{
+		Email: request.Email,
+		HashedPassword: hash,
+		ID: user.ID,
+	}
+
+	if updateErr := cfg.db.UpdateUserInfo(req.Context(), updateInfo); updateErr != nil {
+		respondWithError(w, 500, "Error updating database")
+		return
+	}
+	resUser := User{
+		ID: user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: time.Now(),
+		Email: request.Email,
+	}
+	respondWithJSON(w, 200, resUser)
+}
+
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {	//Returns a user struct from the database based on a given email and password string
 	type httpRequest struct {
 		Password string `json:"password"`
 		Email string `json:"email"`
-		ExpiresInSeconds *int `json:"expires_in_seconds,omitempty"`
 	}
 
 	request := httpRequest{}
@@ -63,20 +230,25 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {	/
 		return
 	}
 
-	var expiresIn time.Duration		//Sets the expiration time for the authorization token at 1 hour if expiration date not set by client
-	if request.ExpiresInSeconds != nil {
-		if *request.ExpiresInSeconds > 3600 {
-			expiresIn = 3600 * time.Second
-		} else {
-			expiresIn = time.Duration(*request.ExpiresInSeconds) * time.Second
-		}
-	} else {
-		expiresIn = 3600 * time.Second
+	token, err := auth.MakeJWT(newUser.ID, cfg.tokenSecret)	//Creates access token for user
+	if err != nil {
+		respondWithError(w, 500, "Error creating access token")
+		return
 	}
 
-	token, err := auth.MakeJWT(newUser.ID, cfg.tokenSecret, expiresIn)	//Creates token for user
+	refreshString, err := auth.MakeRefreshToken()	//Creates a refresh token for user
 	if err != nil {
-		respondWithError(w, 500, "Error creating token")
+		respondWithError(w,  500, "Error creating refresh token")
+	}
+	tokenParams := database.CreateTokenParams{
+		Token: refreshString,
+		UserID: newUser.ID,
+		ExpiresAt: time.Now().Add(1440 * time.Hour),
+	}
+
+	refreshToken, err := cfg.db.CreateToken(req.Context(), tokenParams)
+	if err != nil {
+		respondWithError(w, 500, "Error creating refresh token")
 		return
 	}
 
@@ -86,6 +258,7 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {	/
 		UpdatedAt: newUser.UpdatedAt,
 		Email: newUser.Email,
 		Token: token,
+		RefreshToken: refreshToken.Token,
 	}
 	respondWithJSON(w, 200, user)
 }

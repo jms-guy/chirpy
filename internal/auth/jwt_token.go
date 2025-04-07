@@ -18,11 +18,11 @@ func GetBearerToken(headers http.Header) (string, error) {	//Gets bearer authori
 	return tokenString, nil
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {	//Generates a JWT authorization token
+func MakeJWT(userID uuid.UUID, tokenSecret string) (string, error) {	//Generates a JWT authorization token
 	claims := jwt.RegisteredClaims{	//Creates claims payload for token
 		Issuer: "chirpy",
 		IssuedAt: jwt.NewNumericDate(time.Now().UTC()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(1 * time.Hour)),
 		Subject: hex.EncodeToString(userID[:]),	//Encode uuid into string form
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)	//Create a token with claims payload 
