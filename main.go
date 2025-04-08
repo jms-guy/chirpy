@@ -21,6 +21,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")	//Grabs database url
 	platformEnv := os.Getenv("PLATFORM")
 	secret := os.Getenv("TOKEN_SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 	db, err := sql.Open("postgres", dbURL)	//Opens database connection
 	if err != nil {
 		fmt.Printf("Error opening database connection: %s", err)
@@ -32,6 +33,7 @@ func main() {
 		db: dbQueries,
 		platform: platformEnv,
 		tokenSecret: secret,
+		polkaKey: polkaKey,
 	}
 
 	mux := http.NewServeMux()	//Creates a server mux which routes http requests to handlers
@@ -53,6 +55,7 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validateHandler)
 	mux.HandleFunc("DELETE /api/chirps/{chirpId}", apiCfg.deleteChirpHandler)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.webhookHandler)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, req *http.Request) {	//Handles requests from /healthz endpoint
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")	//Sets response data
 		w.WriteHeader(http.StatusOK)

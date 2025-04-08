@@ -17,6 +17,7 @@ type apiConfig struct {
 	db *database.Queries
 	platform string
 	tokenSecret string
+	polkaKey string
 	fileserverHits atomic.Int32
 }
 
@@ -27,6 +28,7 @@ type User struct {
 		Email string `json:"email"`
 		Token string `json:"token"`
 		RefreshToken string `json:"refresh_token"`
+		IsChirpyRed bool `json:"is_chirpy_red"`
 	}
 
 type Chirp struct {
@@ -38,6 +40,54 @@ type Chirp struct {
 }
 
 ///// Config handle methods
+
+func (cfg *apiConfig) webhookHandler(w http.ResponseWriter, req *http.Request) {
+	type httpRequest struct {
+		Event string `json:"event"`
+		Data struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	apiKey, keyErr := auth.GetAPIKey(req.Header)
+	if keyErr != nil {
+		fmt.Printf("Error getting ApiKey from header: %s", keyErr)
+		w.WriteHeader(401)
+		return
+	}
+	if apiKey != cfg.polkaKey {
+		fmt.Printf("Bad ApiKey")
+		w.WriteHeader(401)
+		return
+	}
+
+	request := httpRequest{}
+	reqErr := json.NewDecoder(req.Body).Decode(&request)	//Gets request data
+	if reqErr != nil {
+		fmt.Printf("Error decoding request body: %s", reqErr)
+		w.WriteHeader(400)
+		return
+	}
+
+	if request.Event != "user.upgraded" {
+		w.WriteHeader(204)
+		return
+	}
+
+	id, err := uuid.Parse(request.Data.UserID)
+	if err != nil {
+		fmt.Printf("Failure to parse user_id in request: %s", err)
+		w.WriteHeader(400)
+		return
+	}
+
+	if updateErr := cfg.db.UpdateChirpyRed(req.Context(), id); updateErr != nil {
+		fmt.Printf("Failure to update is_chirpy_red status for user %s: %s", id, updateErr)
+		w.WriteHeader(404)
+		return
+	}
+	w.WriteHeader(204)
+}
 
 func (cfg *apiConfig) deleteChirpHandler(w http.ResponseWriter, req *http.Request) {
 	token, err := auth.GetBearerToken(req.Header)
@@ -259,6 +309,7 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {	/
 		Email: newUser.Email,
 		Token: token,
 		RefreshToken: refreshToken.Token,
+		IsChirpyRed: newUser.IsChirpyRed,
 	}
 	respondWithJSON(w, 200, user)
 }
@@ -400,6 +451,7 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, req *http.Request) {	/
 		CreatedAt: newUser.CreatedAt,
 		UpdatedAt: newUser.UpdatedAt,
 		Email: newUser.Email,
+		IsChirpyRed: newUser.IsChirpyRed,
 	}
 	respondWithJSON(w, 201, user)	//Send response data
 }
