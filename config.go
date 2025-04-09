@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -342,13 +343,32 @@ func (cfg *apiConfig) getSingleChirp(w http.ResponseWriter, req *http.Request) {
 }
 
 func (cfg *apiConfig) getAllChirps(w http.ResponseWriter, req *http.Request) {	//Returns all chirps from database
-	chirps, err := cfg.db.GetAllChirps(req.Context())
-	if err != nil {
-		fmt.Printf("Error retrieving chirps from database: %s", err)
-		respondWithError(w, 400, "Error retrieving data from server")
-		return
-	}
+	queryId := req.URL.Query().Get("author_id")
+	querySort := req.URL.Query().Get("sort")
 
+	var chirps []database.Chirp
+	var err error
+	if queryId != "" {
+		id, err := uuid.Parse(queryId)
+		if err != nil {
+			fmt.Printf("Error parsing id %s", queryId)
+			respondWithError(w, 400, "Could not parse author id")
+			return
+		}
+		chirps, err = cfg.db.GetChirpsFromAuthor(req.Context(), id)
+		if err != nil {
+			fmt.Printf("Error getting chirps from id %s: %s", id, err)
+			respondWithError(w, 500, "Error getting chirps")
+			return
+		}
+	} else {
+		chirps, err = cfg.db.GetAllChirps(req.Context())
+		if err != nil {
+			fmt.Printf("Error retrieving chirps from database: %s", err)
+			respondWithError(w, 500, "Error retrieving data from server")
+			return
+		}
+	}
 	returnChirps := []Chirp{}
 
 	for _, chirp := range chirps {
@@ -361,7 +381,12 @@ func (cfg *apiConfig) getAllChirps(w http.ResponseWriter, req *http.Request) {	/
 		}
 		returnChirps = append(returnChirps, new)
 	}
-
+	if querySort == "desc" {
+		sort.Slice(returnChirps, func(i, j int) bool {
+			return returnChirps[j].CreatedAt.Before(returnChirps[i].CreatedAt)
+		})
+	}
+	fmt.Println(returnChirps)
 	respondWithJSON(w, 200, returnChirps)
 }
 
